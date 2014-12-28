@@ -1,6 +1,3 @@
-#include <string>
-#include <vector>
-
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Mangle.h"
@@ -14,6 +11,8 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
+#include <string>
+#include <vector>
 
 using namespace clang;
 using namespace clang::driver;
@@ -29,13 +28,18 @@ llvm::cl::opt<bool> ListSymbols("list-symbols",
   llvm::cl::desc("List symbols in main file"),
   llvm::cl::cat(ClangClosureCategory));
 
-llvm::cl::opt<int> SelectedSymbol("symbol",
+llvm::cl::opt<int> SelectedSymbolIndex("symbol",
   llvm::cl::desc("Select symbol by its ID"),
   llvm::cl::cat(ClangClosureCategory));
 
 llvm::cl::opt<std::string> FileOfSymbol("file",
   llvm::cl::desc("The file where the selected symbol resides"),
   llvm::cl::cat(ClangClosureCategory));
+
+//===----------------------------------------------------------------------===//
+// Global variables
+//===----------------------------------------------------------------------===//
+std::string gSelectedSymbolSignature;
 
 //===----------------------------------------------------------------------===//
 // Get symbols list
@@ -112,16 +116,74 @@ private:
 // Get signature of selected symbol
 //===----------------------------------------------------------------------===//
 
+class GetSignatureVisitor : public RecursiveASTVisitor<GetSignatureVisitor> {
+public:
+  GetSignatureVisitor(std::string &signature, int index) :
+    mContext(nullptr), mSignature(signature), mIndex(index) {}
+
+  bool VisitFunctionDecl(FunctionDecl *fd) {
+    if (mIndex > 0
+      && mContext->getSourceManager().isInMainFile(fd->getLocation())) {
+      --mIndex;
+      if (mIndex == 0) {
+        std::unique_ptr<MangleContext> mangleContext =
+          std::unique_ptr<MangleContext>(mContext->createMangleContext());
+        mangleContext->mangleName(fd, llvm::raw_string_ostream(mSignature));
+      }
+    }
+    return true;
+  }
+
+  bool VisitRecordDecl(RecordDecl *rd) {
+    if (mIndex > 0
+      && mContext->getSourceManager().isInMainFile(rd->getLocation())) {
+      --mIndex;
+      if (mIndex == 0) {
+        std::unique_ptr<MangleContext> mangleContext =
+          std::unique_ptr<MangleContext>(mContext->createMangleContext());
+        mangleContext->mangleName(rd, llvm::raw_string_ostream(mSignature));
+      }
+    }
+    return true;
+  }
+
+  void SetASTContext(ASTContext *context) {
+    mContext = context;
+  }
+
+private:
+  ASTContext *mContext;
+  std::string &mSignature;
+  int mIndex;
+};
+
+class GetSignatureConsumer : public ASTConsumer {
+public:
+  GetSignatureConsumer(std::string &signature, int index) :
+    mVisitor(signature, index) {}
+
+  bool HandleTopLevelDecl(DeclGroupRef DR) override {
+    for (DeclGroupRef::iterator b = DR.begin(), e = DR.end(); b != e; ++b)
+      mVisitor.TraverseDecl(*b);
+    return true;
+  }
+
+  void Initialize(ASTContext &Context) override {
+    mVisitor.SetASTContext(&Context);
+  }
+
+private:
+  GetSignatureVisitor mVisitor;
+};
+
 class GetSignatureAction : public ASTFrontendAction {
 public:
   std::unique_ptr<ASTConsumer> CreateASTConsumer(
     CompilerInstance &CI,
     StringRef InFile) override {
-    return llvm::make_unique<ListSymbolsConsumer>(mSymbols);
+    return llvm::make_unique<GetSignatureConsumer>(
+      gSelectedSymbolSignature, SelectedSymbolIndex);
   }
-
-private:
-  std::vector<std::string> mSymbols;
 };
 
 //===----------------------------------------------------------------------===//
@@ -141,6 +203,8 @@ int main(int argc, const char **argv) {
     std::unique_ptr<FrontendActionFactory> factory(
       newFrontendActionFactory<GetSignatureAction>());
     GetSignature.run(factory.get());
+    llvm::outs() << "Selected symbol signature: "
+      << gSelectedSymbolSignature << "\n";
     return 0;
   }
 }
