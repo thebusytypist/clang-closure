@@ -13,6 +13,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <string>
 #include <vector>
+#include <utility>
 
 using namespace clang;
 using namespace clang::driver;
@@ -45,23 +46,29 @@ std::string gSelectedSymbolSignature;
 // Get symbols list
 //===----------------------------------------------------------------------===//
 
+// first: type(record or function)
+// second: signature(mangled name)
+typedef std::pair<std::string, std::string> SymbolListElement;
+
 class ListSymbolsVisitor : public RecursiveASTVisitor<ListSymbolsVisitor> {
 public:
-  ListSymbolsVisitor(std::vector<std::string> &symbols) :
+  ListSymbolsVisitor(std::vector<SymbolListElement> &symbols) :
     mContext(nullptr), mSymbols(symbols) {}
 
   bool VisitFunctionDecl(FunctionDecl *fd) {
     if (mContext->getSourceManager().isInMainFile(fd->getLocation())) {
-      DeclarationName declName = fd->getNameInfo().getName();
-      std::string funcName = declName.getAsString();
-      mSymbols.push_back(funcName);
+      std::string signature;
+      std::unique_ptr<MangleContext> mangleContext =
+        std::unique_ptr<MangleContext>(mContext->createMangleContext());
+      mangleContext->mangleName(fd, llvm::raw_string_ostream(signature));
+      mSymbols.push_back(std::make_pair("function", signature));
     }
     return true;
   }
 
   bool VisitRecordDecl(RecordDecl *rd) {
     if (mContext->getSourceManager().isInMainFile(rd->getLocation())) {
-      mSymbols.push_back(rd->getName());
+      mSymbols.push_back(std::make_pair("record", rd->getName()));
     }
     return true;
   }
@@ -72,12 +79,12 @@ public:
 
 private:
   ASTContext *mContext;
-  std::vector<std::string> &mSymbols;
+  std::vector<SymbolListElement> &mSymbols;
 };
 
 class ListSymbolsConsumer : public ASTConsumer {
 public:
-  explicit ListSymbolsConsumer(std::vector<std::string> &symbols) :
+  explicit ListSymbolsConsumer(std::vector<SymbolListElement> &symbols) :
     mVisitor(symbols) {}
 
   bool HandleTopLevelDecl(DeclGroupRef DR) override {
@@ -98,7 +105,9 @@ class ListSymbolsAction : public ASTFrontendAction {
 public:
   void EndSourceFileAction() override {
     for (size_t i = 0, end = mSymbols.size(); i != end; ++i) {
-      llvm::outs() << i << " " << mSymbols[i] << "\n";
+      llvm::outs() << i << " "
+        << mSymbols[i].first << " "
+        << mSymbols[i].second << "\n";
     }
   }
 
@@ -109,7 +118,7 @@ public:
   }
 
 private:
-  std::vector<std::string> mSymbols;
+  std::vector<SymbolListElement> mSymbols;
 };
 
 //===----------------------------------------------------------------------===//
@@ -139,9 +148,7 @@ public:
       && mContext->getSourceManager().isInMainFile(rd->getLocation())) {
       --mIndex;
       if (mIndex == 0) {
-        std::unique_ptr<MangleContext> mangleContext =
-          std::unique_ptr<MangleContext>(mContext->createMangleContext());
-        mangleContext->mangleName(rd, llvm::raw_string_ostream(mSignature));
+        mSignature = rd->getName();
       }
     }
     return true;
