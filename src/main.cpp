@@ -42,6 +42,10 @@ llvm::cl::opt<std::string> FileOfSymbol("file",
 //===----------------------------------------------------------------------===//
 std::string gSelectedSymbolSignature;
 
+class FileNode;
+typedef std::map<llvm::sys::fs::UniqueID, FileNode> FileInclusionTreeType;
+FileInclusionTreeType gFileInclusionTree;
+
 //===----------------------------------------------------------------------===//
 // Get symbols list
 //===----------------------------------------------------------------------===//
@@ -188,6 +192,99 @@ public:
   std::unique_ptr<ASTConsumer> CreateASTConsumer(
     CompilerInstance &CI,
     StringRef InFile) override {
+    return llvm::make_unique<GetSignatureConsumer>(
+      gSelectedSymbolSignature, SelectedSymbolIndex);
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// File inclusion tree builder
+//===----------------------------------------------------------------------===//
+
+class FileNode {
+public:
+  FileNode(StringRef fileName) : mFileName(fileName) {}
+
+  StringRef getFileName() const {
+    return mFileName;
+  }
+  
+  const std::vector<llvm::sys::fs::UniqueID>& getInclusion() const {
+    return mInclusion;
+  }
+
+  void appendInclusion(const llvm::sys::fs::UniqueID &id) {
+    mInclusion.push_back(id);
+  }
+
+private:
+  std::string mFileName;
+  std::vector<llvm::sys::fs::UniqueID> mInclusion;
+};
+
+class InclusionPPCallbacks : public PPCallbacks {
+public:
+  InclusionPPCallbacks(const FileEntry *mainFile) : mMainFile(mainFile) {
+    // However, a translation unit can be processed more than once
+    // with different macro definitions.
+    assert(
+      gFileInclusionTree.find(mMainFile->getUniqueID())
+      == gFileInclusionTree.end() &&
+      "A translation unit has been processed more than once.");
+
+    mCurrent = gFileInclusionTree.insert(std::make_pair(
+      mMainFile->getUniqueID(),
+      FileNode(mMainFile->getName()))).first;
+  }
+
+  virtual void InclusionDirective(
+    SourceLocation HashLoc,
+    const Token &IncludeTok,
+    StringRef FileName,
+    bool IsAngled,
+    CharSourceRange FilenameRange,
+    const FileEntry *File,
+    StringRef SearchPath,
+    StringRef RelativePath,
+    const Module *Imported) override {
+    mCurrent->second.appendInclusion(File->getUniqueID());
+  }
+
+private:
+  const FileEntry *mMainFile;
+  FileInclusionTreeType::iterator mCurrent;
+};
+
+//===----------------------------------------------------------------------===//
+// Relation graph builder
+//===----------------------------------------------------------------------===//
+
+class RelationGraphConsumer : public ASTConsumer {
+public:
+  RelationGraphConsumer(std::string &signature, int index) :
+    mVisitor(signature, index) {}
+
+  bool HandleTopLevelDecl(DeclGroupRef DR) override {
+    for (DeclGroupRef::iterator b = DR.begin(), e = DR.end(); b != e; ++b)
+      mVisitor.TraverseDecl(*b);
+    return true;
+  }
+
+  void Initialize(ASTContext &Context) override {
+    mVisitor.SetASTContext(&Context);
+  }
+
+private:
+  GetSignatureVisitor mVisitor;
+};
+
+class RelationGraphAction : public ASTFrontendAction {
+public:
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(
+    CompilerInstance &CI,
+    StringRef InFile) override {
+    Preprocessor &pp = CI.getPreprocessor();
+    pp.addPPCallbacks(llvm::make_unique<InclusionPPCallbacks>());
     return llvm::make_unique<GetSignatureConsumer>(
       gSelectedSymbolSignature, SelectedSymbolIndex);
   }
