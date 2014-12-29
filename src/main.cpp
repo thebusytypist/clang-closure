@@ -224,18 +224,7 @@ private:
 
 class InclusionPPCallbacks : public PPCallbacks {
 public:
-  InclusionPPCallbacks(const FileEntry *mainFile) : mMainFile(mainFile) {
-    // However, a translation unit can be processed more than once
-    // with different macro definitions.
-    assert(
-      gFileInclusionTree.find(mMainFile->getUniqueID())
-      == gFileInclusionTree.end() &&
-      "A translation unit has been processed more than once.");
-
-    mCurrent = gFileInclusionTree.insert(std::make_pair(
-      mMainFile->getUniqueID(),
-      FileNode(mMainFile->getName()))).first;
-  }
+  InclusionPPCallbacks(SourceManager &srcMgr) : mSourceManager(srcMgr) {}
 
   virtual void InclusionDirective(
     SourceLocation HashLoc,
@@ -247,12 +236,28 @@ public:
     StringRef SearchPath,
     StringRef RelativePath,
     const Module *Imported) override {
-    mCurrent->second.appendInclusion(File->getUniqueID());
+    const FileEntry *parent = mSourceManager.getFileEntryForID(
+      mSourceManager.getFileID(HashLoc));
+    FileInclusionTreeType::iterator parentIter
+      = FindOrInsert(parent);
+    FindOrInsert(File);
+    parentIter->second.appendInclusion(File->getUniqueID());
   }
 
 private:
-  const FileEntry *mMainFile;
-  FileInclusionTreeType::iterator mCurrent;
+  SourceManager &mSourceManager;
+
+  FileInclusionTreeType::iterator FindOrInsert(const FileEntry *file) {
+    FileInclusionTreeType::iterator iter
+      = gFileInclusionTree.find(file->getUniqueID());
+    if (iter == gFileInclusionTree.end()) {
+      iter = gFileInclusionTree.insert(std::make_pair(
+        file->getUniqueID(),
+        FileNode(file->getName())
+        )).first;
+    }
+    return iter;
+  }
 };
 
 //===----------------------------------------------------------------------===//
@@ -260,22 +265,6 @@ private:
 //===----------------------------------------------------------------------===//
 
 class RelationGraphConsumer : public ASTConsumer {
-public:
-  RelationGraphConsumer(std::string &signature, int index) :
-    mVisitor(signature, index) {}
-
-  bool HandleTopLevelDecl(DeclGroupRef DR) override {
-    for (DeclGroupRef::iterator b = DR.begin(), e = DR.end(); b != e; ++b)
-      mVisitor.TraverseDecl(*b);
-    return true;
-  }
-
-  void Initialize(ASTContext &Context) override {
-    mVisitor.SetASTContext(&Context);
-  }
-
-private:
-  GetSignatureVisitor mVisitor;
 };
 
 class RelationGraphAction : public ASTFrontendAction {
@@ -284,11 +273,35 @@ public:
     CompilerInstance &CI,
     StringRef InFile) override {
     Preprocessor &pp = CI.getPreprocessor();
-    pp.addPPCallbacks(llvm::make_unique<InclusionPPCallbacks>());
-    return llvm::make_unique<GetSignatureConsumer>(
-      gSelectedSymbolSignature, SelectedSymbolIndex);
+    pp.addPPCallbacks(llvm::make_unique<InclusionPPCallbacks>(
+      CI.getSourceManager()));
+    return llvm::make_unique<RelationGraphConsumer>();
   }
 };
+
+static void PrintInclusionTree() {
+  for (auto iter = gFileInclusionTree.begin();
+    iter != gFileInclusionTree.end(); ++iter) {
+    llvm::outs() << iter->first.getDevice() << "-"
+      << iter->first.getFile() << " "
+      << iter->second.getFileName() << "\n";
+
+    llvm::outs() << "includes:\n";
+    auto inclusion = iter->second.getInclusion();
+    for (auto j = inclusion.begin(); j != inclusion.end(); ++j) {
+      llvm::outs() << j->getDevice() << "-" << j->getFile();
+
+      FileInclusionTreeType::const_iterator r
+        = gFileInclusionTree.find(*j);
+      if (r != gFileInclusionTree.end()) {
+        llvm::outs() << " " << r->second.getFileName();
+      }
+      llvm::outs() << "\n";
+    }
+
+    llvm::outs() << "\n";
+  }
+}
 
 //===----------------------------------------------------------------------===//
 // Main
@@ -309,6 +322,13 @@ int main(int argc, const char **argv) {
     GetSignature.run(factory.get());
     llvm::outs() << "Selected symbol signature: "
       << gSelectedSymbolSignature << "\n";
+
+    ClangTool RelationGraphBuilder(op.getCompilations(),
+      op.getSourcePathList());
+    std::unique_ptr<FrontendActionFactory> relationGraphFactory(
+      newFrontendActionFactory<RelationGraphAction>());
+    RelationGraphBuilder.run(relationGraphFactory.get());
+    PrintInclusionTree();
     return 0;
   }
 }
