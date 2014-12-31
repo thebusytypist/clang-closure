@@ -11,9 +11,11 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
+#include <map>
+#include <set>
 #include <string>
-#include <vector>
 #include <utility>
+#include <vector>
 
 using namespace clang;
 using namespace clang::driver;
@@ -45,6 +47,8 @@ std::string gSelectedSymbolSignature;
 class FileNode;
 typedef std::map<llvm::sys::fs::UniqueID, FileNode> FileInclusionTreeType;
 FileInclusionTreeType gFileInclusionTree;
+
+std::set<llvm::sys::fs::UniqueID> gSystemHeadersInMainFile;
 
 //===----------------------------------------------------------------------===//
 // Symbols listing
@@ -247,18 +251,26 @@ public:
     StringRef SearchPath,
     StringRef RelativePath,
     const Module *Imported) override {
-    const FileEntry *parent = mSourceManager.getFileEntryForID(
+    const FileEntry *h = mSourceManager.getFileEntryForID(
       mSourceManager.getFileID(HashLoc));
+
+    if (mSourceManager.isInSystemHeader(HashLoc)) {
+      gSystemHeadersInMainFile.insert(h->getUniqueID());
+      return;
+    }
+
     FileInclusionTreeType::iterator parentIter
-      = FindOrInsert(parent);
-    FindOrInsert(File);
+      = findOrInsert(h);
+    findOrInsert(File);
     parentIter->second.appendInclusion(File->getUniqueID());
   }
 
 private:
   SourceManager &mSourceManager;
+  typedef std::set<llvm::sys::fs::UniqueID> mSystemHeaderInMainFile;
+  int mCount;
 
-  FileInclusionTreeType::iterator FindOrInsert(const FileEntry *file) {
+  FileInclusionTreeType::iterator findOrInsert(const FileEntry *file) {
     FileInclusionTreeType::iterator iter
       = gFileInclusionTree.find(file->getUniqueID());
     if (iter == gFileInclusionTree.end()) {
@@ -290,16 +302,36 @@ public:
   }
 };
 
+static bool IsSystemHeaderInMainFile(llvm::sys::fs::UniqueID f) {
+  return gSystemHeadersInMainFile.find(f)
+    != gSystemHeadersInMainFile.end();
+}
+
+static size_t CountUserHeader(const std::vector<llvm::sys::fs::UniqueID> &v) {
+  size_t count = 0;
+  for (auto iter = v.begin(); iter != v.end(); ++iter) {
+    if (!IsSystemHeaderInMainFile(*iter))
+      ++count;
+  }
+  return count;
+}
+
 static void PrintInclusionTree() {
   for (auto iter = gFileInclusionTree.begin();
     iter != gFileInclusionTree.end(); ++iter) {
+    if (IsSystemHeaderInMainFile(iter->first))
+      continue;
+
     llvm::outs() << iter->first.getDevice() << "-"
       << iter->first.getFile() << " "
       << iter->second.getFileName() << "\n";
 
-    llvm::outs() << "includes:\n";
     auto inclusion = iter->second.getInclusion();
+    if (CountUserHeader(inclusion) != 0)
+      llvm::outs() << "includes:\n";
     for (auto j = inclusion.begin(); j != inclusion.end(); ++j) {
+      if (IsSystemHeaderInMainFile(*j))
+        continue;
       llvm::outs() << j->getDevice() << "-" << j->getFile();
 
       FileInclusionTreeType::const_iterator r
