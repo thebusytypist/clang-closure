@@ -47,23 +47,24 @@ typedef std::map<llvm::sys::fs::UniqueID, FileNode> FileInclusionTreeType;
 FileInclusionTreeType gFileInclusionTree;
 
 //===----------------------------------------------------------------------===//
-// Get symbols list
+// Symbols listing
 //===----------------------------------------------------------------------===//
 
 // first: type(record or function)
 // second: signature(mangled name)
 typedef std::pair<std::string, std::string> SymbolListElement;
 
-class ListSymbolsVisitor : public RecursiveASTVisitor<ListSymbolsVisitor> {
+class SymbolsListingVisitor
+  : public RecursiveASTVisitor<SymbolsListingVisitor> {
 public:
-  ListSymbolsVisitor(std::vector<SymbolListElement> &symbols) :
+  SymbolsListingVisitor(std::vector<SymbolListElement> &symbols) :
     mContext(nullptr), mSymbols(symbols) {}
 
   bool VisitFunctionDecl(FunctionDecl *fd) {
     if (mContext->getSourceManager().isInMainFile(fd->getLocation())) {
       std::string signature;
-      std::unique_ptr<MangleContext> mangleContext =
-        std::unique_ptr<MangleContext>(mContext->createMangleContext());
+      std::unique_ptr<MangleContext> mangleContext
+        = std::unique_ptr<MangleContext>(mContext->createMangleContext());
       mangleContext->mangleName(fd, llvm::raw_string_ostream(signature));
       mSymbols.push_back(std::make_pair("function", signature));
     }
@@ -86,9 +87,9 @@ private:
   std::vector<SymbolListElement> &mSymbols;
 };
 
-class ListSymbolsConsumer : public ASTConsumer {
+class SymbolsListingConsumer : public ASTConsumer {
 public:
-  explicit ListSymbolsConsumer(std::vector<SymbolListElement> &symbols) :
+  explicit SymbolsListingConsumer(std::vector<SymbolListElement> &symbols) :
     mVisitor(symbols) {}
 
   bool HandleTopLevelDecl(DeclGroupRef DR) override {
@@ -102,10 +103,10 @@ public:
   }
 
 private:
-  ListSymbolsVisitor mVisitor;
+  SymbolsListingVisitor mVisitor;
 };
 
-class ListSymbolsAction : public ASTFrontendAction {
+class SymbolsListingAction : public ASTFrontendAction {
 public:
   void EndSourceFileAction() override {
     for (size_t i = 0, end = mSymbols.size(); i != end; ++i) {
@@ -118,7 +119,7 @@ public:
   std::unique_ptr<ASTConsumer> CreateASTConsumer(
     CompilerInstance &CI,
     StringRef InFile) override {
-    return llvm::make_unique<ListSymbolsConsumer>(mSymbols);
+    return llvm::make_unique<SymbolsListingConsumer>(mSymbols);
   }
 
 private:
@@ -126,12 +127,13 @@ private:
 };
 
 //===----------------------------------------------------------------------===//
-// Get signature of selected symbol
+// Signature locating of selected symbol
 //===----------------------------------------------------------------------===//
 
-class GetSignatureVisitor : public RecursiveASTVisitor<GetSignatureVisitor> {
+class SignatureLocatingVisitor
+  : public RecursiveASTVisitor<SignatureLocatingVisitor> {
 public:
-  GetSignatureVisitor(std::string &signature, int index) :
+  SignatureLocatingVisitor(std::string &signature, int index) :
     mContext(nullptr), mSignature(signature), mIndex(index) {}
 
   bool VisitFunctionDecl(FunctionDecl *fd) {
@@ -168,9 +170,9 @@ private:
   int mIndex;
 };
 
-class GetSignatureConsumer : public ASTConsumer {
+class SignatureLocatingConsumer : public ASTConsumer {
 public:
-  GetSignatureConsumer(std::string &signature, int index) :
+  SignatureLocatingConsumer(std::string &signature, int index) :
     mVisitor(signature, index) {}
 
   bool HandleTopLevelDecl(DeclGroupRef DR) override {
@@ -184,15 +186,15 @@ public:
   }
 
 private:
-  GetSignatureVisitor mVisitor;
+  SignatureLocatingVisitor mVisitor;
 };
 
-class GetSignatureAction : public ASTFrontendAction {
+class SignatureLocatingAction : public ASTFrontendAction {
 public:
   std::unique_ptr<ASTConsumer> CreateASTConsumer(
     CompilerInstance &CI,
     StringRef InFile) override {
-    return llvm::make_unique<GetSignatureConsumer>(
+    return llvm::make_unique<SignatureLocatingConsumer>(
       gSelectedSymbolSignature, SelectedSymbolIndex);
   }
 };
@@ -261,13 +263,13 @@ private:
 };
 
 //===----------------------------------------------------------------------===//
-// Relation graph builder
+// Relation graph construction
 //===----------------------------------------------------------------------===//
 
-class RelationGraphConsumer : public ASTConsumer {
+class RelationGraphConstructionConsumer : public ASTConsumer {
 };
 
-class RelationGraphAction : public ASTFrontendAction {
+class RelationGraphConstructionAction : public ASTFrontendAction {
 public:
   std::unique_ptr<ASTConsumer> CreateASTConsumer(
     CompilerInstance &CI,
@@ -275,7 +277,7 @@ public:
     Preprocessor &pp = CI.getPreprocessor();
     pp.addPPCallbacks(llvm::make_unique<InclusionPPCallbacks>(
       CI.getSourceManager()));
-    return llvm::make_unique<RelationGraphConsumer>();
+    return llvm::make_unique<RelationGraphConstructionConsumer>();
   }
 };
 
@@ -312,22 +314,22 @@ int main(int argc, const char **argv) {
 
   if (ListSymbols) {
     ClangTool Tool(op.getCompilations(), op.getSourcePathList());
-    return Tool.run(newFrontendActionFactory<ListSymbolsAction>().get());
+    return Tool.run(newFrontendActionFactory<SymbolsListingAction>().get());
   }
   else {
-    ClangTool GetSignature(op.getCompilations(),
+    ClangTool SignatureLocatingTool(op.getCompilations(),
       llvm::ArrayRef<std::string>(FileOfSymbol));
     std::unique_ptr<FrontendActionFactory> factory(
-      newFrontendActionFactory<GetSignatureAction>());
-    GetSignature.run(factory.get());
+      newFrontendActionFactory<SignatureLocatingAction>());
+    SignatureLocatingTool.run(factory.get());
     llvm::outs() << "Selected symbol signature: "
       << gSelectedSymbolSignature << "\n";
 
-    ClangTool RelationGraphBuilder(op.getCompilations(),
+    ClangTool RelationGraphConstructionTool(op.getCompilations(),
       op.getSourcePathList());
-    std::unique_ptr<FrontendActionFactory> relationGraphFactory(
-      newFrontendActionFactory<RelationGraphAction>());
-    RelationGraphBuilder.run(relationGraphFactory.get());
+    std::unique_ptr<FrontendActionFactory> RGFactory(
+      newFrontendActionFactory<RelationGraphConstructionAction>());
+    RelationGraphConstructionTool.run(RGFactory.get());
     PrintInclusionTree();
     return 0;
   }
