@@ -73,7 +73,12 @@ public:
 
   bool VisitRecordDecl(RecordDecl *rd) {
     if (mContext->getSourceManager().isInMainFile(rd->getLocation())) {
-      mSymbols.push_back(std::make_pair("record", rd->getName()));
+      std::string signature;
+      std::unique_ptr<MangleContext> mangleContext
+        = std::unique_ptr<MangleContext>(mContext->createMangleContext());
+      QualType type = rd->getTypeForDecl()->getCanonicalTypeInternal();
+      mangleContext->mangleTypeName(type, llvm::raw_string_ostream(signature));
+      mSymbols.push_back(std::make_pair("record", signature));
     }
     return true;
   }
@@ -89,8 +94,8 @@ private:
 
 class SymbolsListingConsumer : public ASTConsumer {
 public:
-  explicit SymbolsListingConsumer(std::vector<SymbolListElement> &symbols) :
-    mVisitor(symbols) {}
+  explicit SymbolsListingConsumer(std::vector<SymbolListElement> &symbols)
+    : mVisitor(symbols) {}
 
   bool HandleTopLevelDecl(DeclGroupRef DR) override {
     for (DeclGroupRef::iterator b = DR.begin(), e = DR.end(); b != e; ++b)
@@ -154,7 +159,11 @@ public:
       && mContext->getSourceManager().isInMainFile(rd->getLocation())) {
       --mIndex;
       if (mIndex == 0) {
-        mSignature = rd->getName();
+        std::unique_ptr<MangleContext> mangleContext
+          = std::unique_ptr<MangleContext>(mContext->createMangleContext());
+        QualType type = rd->getTypeForDecl()->getCanonicalTypeInternal();
+        mangleContext->mangleTypeName(type,
+          llvm::raw_string_ostream(mSignature));
       }
     }
     return true;
