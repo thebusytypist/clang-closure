@@ -3,7 +3,7 @@ set(LLVM_LINK_COMPONENTS
   )
 
 add_extra_unittest(ClangClosureTests
-  SymbolListingTest.cpp
+  SymbolsListingTest.cpp
   )
 
 target_link_libraries(ClangClosureTests
