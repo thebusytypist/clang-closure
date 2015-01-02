@@ -1,3 +1,4 @@
+#include "SymbolsListing.h"
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Mangle.h"
@@ -54,85 +55,24 @@ std::set<llvm::sys::fs::UniqueID> gSystemHeadersInMainFile;
 // Symbols listing
 //===----------------------------------------------------------------------===//
 
-// first: type(record or function)
-// second: signature(mangled name)
-typedef std::pair<std::string, std::string> SymbolListElement;
-
-class SymbolsListingVisitor
-  : public RecursiveASTVisitor<SymbolsListingVisitor> {
-public:
-  SymbolsListingVisitor(std::vector<SymbolListElement> &symbols) :
-    mContext(nullptr), mSymbols(symbols) {}
-
-  bool VisitFunctionDecl(FunctionDecl *fd) {
-    if (mContext->getSourceManager().isInMainFile(fd->getLocation())) {
-      std::string signature;
-      std::unique_ptr<MangleContext> mangleContext
-        = std::unique_ptr<MangleContext>(mContext->createMangleContext());
-      mangleContext->mangleName(fd, llvm::raw_string_ostream(signature));
-      mSymbols.push_back(std::make_pair("function", signature));
-    }
-    return true;
-  }
-
-  bool VisitRecordDecl(RecordDecl *rd) {
-    if (mContext->getSourceManager().isInMainFile(rd->getLocation())) {
-      std::string signature;
-      std::unique_ptr<MangleContext> mangleContext
-        = std::unique_ptr<MangleContext>(mContext->createMangleContext());
-      QualType type = rd->getTypeForDecl()->getCanonicalTypeInternal();
-      mangleContext->mangleTypeName(type, llvm::raw_string_ostream(signature));
-      mSymbols.push_back(std::make_pair("record", signature));
-    }
-    return true;
-  }
-
-  void SetASTContext(ASTContext *context) {
-    mContext = context;
-  }
-
-private:
-  ASTContext *mContext;
-  std::vector<SymbolListElement> &mSymbols;
-};
-
-class SymbolsListingConsumer : public ASTConsumer {
-public:
-  explicit SymbolsListingConsumer(std::vector<SymbolListElement> &symbols)
-    : mVisitor(symbols) {}
-
-  bool HandleTopLevelDecl(DeclGroupRef DR) override {
-    for (DeclGroupRef::iterator b = DR.begin(), e = DR.end(); b != e; ++b)
-      mVisitor.TraverseDecl(*b);
-    return true;
-  }
-
-  void Initialize(ASTContext &Context) override {
-    mVisitor.SetASTContext(&Context);
-  }
-
-private:
-  SymbolsListingVisitor mVisitor;
-};
-
 class SymbolsListingAction : public ASTFrontendAction {
 public:
   void EndSourceFileAction() override {
-    for (size_t i = 0, end = mSymbols.size(); i != end; ++i) {
+    for (size_t i = 0, count = mSymbols.getCount(); i != count; ++i) {
       llvm::outs() << i << " "
-        << mSymbols[i].first << " "
-        << mSymbols[i].second << "\n";
+        << mSymbols.getType(i) << " "
+        << mSymbols.getMangledName(i) << "\n";
     }
   }
 
   std::unique_ptr<ASTConsumer> CreateASTConsumer(
     CompilerInstance &CI,
     StringRef InFile) override {
-    return llvm::make_unique<SymbolsListingConsumer>(mSymbols);
+    return llvm::make_unique<closure::SymbolsListingConsumer>(mSymbols);
   }
 
 private:
-  std::vector<SymbolListElement> mSymbols;
+  closure::SymbolsList mSymbols;
 };
 
 //===----------------------------------------------------------------------===//
