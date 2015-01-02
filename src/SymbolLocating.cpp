@@ -6,22 +6,25 @@ namespace clang {
 namespace closure {
 
 bool SymbolLocatingVisitor::VisitFunctionDecl(FunctionDecl *fd) {
-  if (mIndex > 0
-    && mContext->getSourceManager().isInMainFile(fd->getLocation())) {
-    --mIndex;
+  if (mIndex < 0)
+    return false;
+
+  if (mContext->getSourceManager().isInMainFile(fd->getLocation())) {
     if (mIndex == 0) {
       std::unique_ptr<MangleContext> mangleContext =
         std::unique_ptr<MangleContext>(mContext->createMangleContext());
       mangleContext->mangleName(fd, llvm::raw_string_ostream(mSignature));
     }
+    --mIndex;
   }
   return true;
 }
 
 bool SymbolLocatingVisitor::VisitRecordDecl(RecordDecl *rd) {
-  if (mIndex > 0
-    && mContext->getSourceManager().isInMainFile(rd->getLocation())) {
-    --mIndex;
+  if (mIndex < 0)
+    return false;
+
+  if (mContext->getSourceManager().isInMainFile(rd->getLocation())) {
     if (mIndex == 0) {
       std::unique_ptr<MangleContext> mangleContext
         = std::unique_ptr<MangleContext>(mContext->createMangleContext());
@@ -29,6 +32,7 @@ bool SymbolLocatingVisitor::VisitRecordDecl(RecordDecl *rd) {
       mangleContext->mangleTypeName(type,
         llvm::raw_string_ostream(mSignature));
     }
+    --mIndex;
   }
   return true;
 }
