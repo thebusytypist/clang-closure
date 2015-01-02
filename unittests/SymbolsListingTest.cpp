@@ -31,10 +31,34 @@ struct MyStruct {
 };
 )";
 
-TEST(SymbolListingTest, CheckCount) {
+TEST(SymbolListingTest, CountAndType) {
   closure::SymbolsList symbols;
   SymbolsListingTestAction *action = new SymbolsListingTestAction(symbols);
   bool r = runToolOnCode(action, simple_c, "simple.c");
   EXPECT_TRUE(r);
   EXPECT_EQ(2, symbols.getCount());
+
+  StringRef e[] = {
+    StringRef("function"),
+    StringRef("record")
+  };
+
+  for (size_t i = 0, count = symbols.getCount(); i != count; ++i) {
+    EXPECT_TRUE(symbols.getType(i) == e[i]);
+  }
+}
+
+const char *structtypedef_c = R"(
+typedef struct MyStruct {
+  int value;
+} MyStructT;
+)";
+
+TEST(SymbolListingTest, StructTypedef) {
+  closure::SymbolsList symbols;
+  SymbolsListingTestAction *action = new SymbolsListingTestAction(symbols);
+  bool r = runToolOnCode(action, structtypedef_c, "structtypedef.c");
+  EXPECT_TRUE(r);
+  EXPECT_EQ(1, symbols.getCount());
+  EXPECT_TRUE(symbols.getType(0) == StringRef("record"));
 }
