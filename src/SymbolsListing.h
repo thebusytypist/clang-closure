@@ -17,7 +17,7 @@ public:
 
   size_t getCount() const;
   StringRef getType(size_t index) const;
-  StringRef getMangledName(size_t index) const;
+  StringRef getSignature(size_t index) const;
 
 private:
   void *mSymbolsListImpl;

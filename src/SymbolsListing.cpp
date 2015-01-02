@@ -1,6 +1,6 @@
+#include "SymbolsListing.h"
 #include "clang/AST/AST.h"
 #include "clang/AST/Mangle.h"
-#include "SymbolsListing.h"
 #include <string>
 #include <vector>
 
@@ -26,11 +26,11 @@ size_t SymbolsList::getCount() const {
 }
 
 StringRef SymbolsList::getType(size_t index) const {
-  return StringRef((*SYMSLIST)[index].first);
+  return (*SYMSLIST)[index].first;
 }
 
-StringRef SymbolsList::getMangledName(size_t index) const {
-  return StringRef((*SYMSLIST)[index].second);
+StringRef SymbolsList::getSignature(size_t index) const {
+  return (*SYMSLIST)[index].second;
 }
 
 static inline void AppendSymbol(

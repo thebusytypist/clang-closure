@@ -21,7 +21,7 @@ public:
   closure::SymbolsList &mSymbols;
 };
 
-const char *simple_c = R"(
+static const char *simple_c = R"(
 int inc(int x) {
   return x + 1;
 }
@@ -38,17 +38,14 @@ TEST(SymbolListingTest, CountAndType) {
   EXPECT_TRUE(r);
   EXPECT_EQ(2, symbols.getCount());
 
-  StringRef e[] = {
-    StringRef("function"),
-    StringRef("record")
-  };
+  StringRef e[] = {"function", "record"};
 
   for (size_t i = 0, count = symbols.getCount(); i != count; ++i) {
     EXPECT_TRUE(symbols.getType(i) == e[i]);
   }
 }
 
-const char *structtypedef_c = R"(
+static const char *structtypedef_c = R"(
 typedef struct MyStruct {
   int value;
 } MyStructT;
@@ -60,5 +57,5 @@ TEST(SymbolListingTest, StructTypedef) {
   bool r = runToolOnCode(action, structtypedef_c, "structtypedef.c");
   EXPECT_TRUE(r);
   EXPECT_EQ(1, symbols.getCount());
-  EXPECT_TRUE(symbols.getType(0) == StringRef("record"));
+  EXPECT_TRUE(symbols.getType(0) == "record");
 }

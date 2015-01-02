@@ -1,4 +1,5 @@
 #include "SymbolsListing.h"
+#include "SymbolLocating.h"
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Mangle.h"
@@ -61,7 +62,7 @@ public:
     for (size_t i = 0, count = mSymbols.getCount(); i != count; ++i) {
       llvm::outs() << i << " "
         << mSymbols.getType(i) << " "
-        << mSymbols.getMangledName(i) << "\n";
+        << mSymbols.getSignature(i) << "\n";
     }
   }
 
@@ -76,78 +77,15 @@ private:
 };
 
 //===----------------------------------------------------------------------===//
-// Signature locating of selected symbol
+// Symbol locating of selected symbol
 //===----------------------------------------------------------------------===//
 
-class SignatureLocatingVisitor
-  : public RecursiveASTVisitor<SignatureLocatingVisitor> {
-public:
-  SignatureLocatingVisitor(std::string &signature, int index) :
-    mContext(nullptr), mSignature(signature), mIndex(index) {}
-
-  bool VisitFunctionDecl(FunctionDecl *fd) {
-    if (mIndex > 0
-      && mContext->getSourceManager().isInMainFile(fd->getLocation())) {
-      --mIndex;
-      if (mIndex == 0) {
-        std::unique_ptr<MangleContext> mangleContext =
-          std::unique_ptr<MangleContext>(mContext->createMangleContext());
-        mangleContext->mangleName(fd, llvm::raw_string_ostream(mSignature));
-      }
-    }
-    return true;
-  }
-
-  bool VisitRecordDecl(RecordDecl *rd) {
-    if (mIndex > 0
-      && mContext->getSourceManager().isInMainFile(rd->getLocation())) {
-      --mIndex;
-      if (mIndex == 0) {
-        std::unique_ptr<MangleContext> mangleContext
-          = std::unique_ptr<MangleContext>(mContext->createMangleContext());
-        QualType type = rd->getTypeForDecl()->getCanonicalTypeInternal();
-        mangleContext->mangleTypeName(type,
-          llvm::raw_string_ostream(mSignature));
-      }
-    }
-    return true;
-  }
-
-  void SetASTContext(ASTContext *context) {
-    mContext = context;
-  }
-
-private:
-  ASTContext *mContext;
-  std::string &mSignature;
-  int mIndex;
-};
-
-class SignatureLocatingConsumer : public ASTConsumer {
-public:
-  SignatureLocatingConsumer(std::string &signature, int index) :
-    mVisitor(signature, index) {}
-
-  bool HandleTopLevelDecl(DeclGroupRef DR) override {
-    for (DeclGroupRef::iterator b = DR.begin(), e = DR.end(); b != e; ++b)
-      mVisitor.TraverseDecl(*b);
-    return true;
-  }
-
-  void Initialize(ASTContext &Context) override {
-    mVisitor.SetASTContext(&Context);
-  }
-
-private:
-  SignatureLocatingVisitor mVisitor;
-};
-
-class SignatureLocatingAction : public ASTFrontendAction {
+class SymbolLocatingAction : public ASTFrontendAction {
 public:
   std::unique_ptr<ASTConsumer> CreateASTConsumer(
     CompilerInstance &CI,
     StringRef InFile) override {
-    return llvm::make_unique<SignatureLocatingConsumer>(
+    return llvm::make_unique<closure::SymbolLocatingConsumer>(
       gSelectedSymbolSignature, SelectedSymbolIndex);
   }
 };
@@ -298,11 +236,11 @@ int main(int argc, const char **argv) {
     return Tool.run(newFrontendActionFactory<SymbolsListingAction>().get());
   }
   else {
-    ClangTool SignatureLocatingTool(op.getCompilations(),
+    ClangTool SymbolLocatingTool(op.getCompilations(),
       llvm::ArrayRef<std::string>(FileOfSymbol));
     std::unique_ptr<FrontendActionFactory> factory(
-      newFrontendActionFactory<SignatureLocatingAction>());
-    SignatureLocatingTool.run(factory.get());
+      newFrontendActionFactory<SymbolLocatingAction>());
+    SymbolLocatingTool.run(factory.get());
     llvm::outs() << "Selected symbol signature: "
       << gSelectedSymbolSignature << "\n";
 
