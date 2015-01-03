@@ -5,6 +5,7 @@ set(LLVM_LINK_COMPONENTS
 add_clang_library(clangClosure
   SymbolsListing.cpp
   SymbolLocating.cpp
+  RelationConstruction.cpp
 
   LINK_LIBS
   clangAST

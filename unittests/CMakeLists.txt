@@ -9,6 +9,7 @@ include_directories(
 add_extra_unittest(ClangClosureTests
   SymbolsListingTest.cpp
   SymbolLocatingTest.cpp
+  RelationConstructionTest.cpp
   )
 
 target_link_libraries(ClangClosureTests

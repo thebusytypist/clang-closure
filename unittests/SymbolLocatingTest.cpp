@@ -38,7 +38,6 @@ TEST(SymbolLocatingTest, Simple) {
   std::string signature;
   SymbolLocatingTestAction *action = new SymbolLocatingTestAction(
     0, signature);
-  bool r = runToolOnCode(action, simple_c, "simple.c");
-  EXPECT_TRUE(r);
+  EXPECT_TRUE(runToolOnCode(action, simple_c, "simple.c"));
   EXPECT_TRUE(signature != "");
 }

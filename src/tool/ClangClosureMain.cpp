@@ -1,5 +1,6 @@
 #include "SymbolsListing.h"
 #include "SymbolLocating.h"
+#include "RelationConstruction.h"
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Mangle.h"
@@ -46,11 +47,8 @@ llvm::cl::opt<std::string> FileOfSymbol("file",
 //===----------------------------------------------------------------------===//
 std::string gSelectedSymbolSignature;
 
-class FileNode;
-typedef std::map<llvm::sys::fs::UniqueID, FileNode> FileInclusionTreeType;
-FileInclusionTreeType gFileInclusionTree;
-
-std::set<llvm::sys::fs::UniqueID> gSystemHeadersInMainFile;
+closure::FilesMapType gFileInclusionTree;
+closure::FilesSetType gSystemHeadersInMainFiles;
 
 //===----------------------------------------------------------------------===//
 // Symbols listing
@@ -91,107 +89,35 @@ public:
 };
 
 //===----------------------------------------------------------------------===//
-// File inclusion tree builder
+// Relation construction
 //===----------------------------------------------------------------------===//
 
-class FileNode {
-public:
-  FileNode(StringRef fileName) : mFileName(fileName) {}
-
-  StringRef getFileName() const {
-    return mFileName;
-  }
-  
-  const std::vector<llvm::sys::fs::UniqueID>& getInclusion() const {
-    return mInclusion;
-  }
-
-  void appendInclusion(const llvm::sys::fs::UniqueID &id) {
-    mInclusion.push_back(id);
-  }
-
-private:
-  std::string mFileName;
-  std::vector<llvm::sys::fs::UniqueID> mInclusion;
-};
-
-class InclusionPPCallbacks : public PPCallbacks {
-public:
-  InclusionPPCallbacks(SourceManager &srcMgr) : mSourceManager(srcMgr) {}
-
-  virtual void InclusionDirective(
-    SourceLocation HashLoc,
-    const Token &IncludeTok,
-    StringRef FileName,
-    bool IsAngled,
-    CharSourceRange FilenameRange,
-    const FileEntry *File,
-    StringRef SearchPath,
-    StringRef RelativePath,
-    const Module *Imported) override {
-    const FileEntry *h = mSourceManager.getFileEntryForID(
-      mSourceManager.getFileID(HashLoc));
-
-    if (mSourceManager.isInSystemHeader(HashLoc)) {
-      gSystemHeadersInMainFile.insert(h->getUniqueID());
-      return;
-    }
-
-    FileInclusionTreeType::iterator parentIter
-      = findOrInsert(h);
-    findOrInsert(File);
-    parentIter->second.appendInclusion(File->getUniqueID());
-  }
-
-private:
-  SourceManager &mSourceManager;
-  typedef std::set<llvm::sys::fs::UniqueID> mSystemHeaderInMainFile;
-  int mCount;
-
-  FileInclusionTreeType::iterator findOrInsert(const FileEntry *file) {
-    FileInclusionTreeType::iterator iter
-      = gFileInclusionTree.find(file->getUniqueID());
-    if (iter == gFileInclusionTree.end()) {
-      iter = gFileInclusionTree.insert(std::make_pair(
-        file->getUniqueID(),
-        FileNode(file->getName())
-        )).first;
-    }
-    return iter;
-  }
-};
-
-//===----------------------------------------------------------------------===//
-// Relation graph construction
-//===----------------------------------------------------------------------===//
-
-class RelationGraphConstructionConsumer : public ASTConsumer {
-};
-
-class RelationGraphConstructionAction : public ASTFrontendAction {
+class RelationConstructionAction : public ASTFrontendAction {
 public:
   std::unique_ptr<ASTConsumer> CreateASTConsumer(
     CompilerInstance &CI,
     StringRef InFile) override {
     Preprocessor &pp = CI.getPreprocessor();
-    pp.addPPCallbacks(llvm::make_unique<InclusionPPCallbacks>(
-      CI.getSourceManager()));
-    return llvm::make_unique<RelationGraphConstructionConsumer>();
+    pp.addPPCallbacks(llvm::make_unique<closure::InclusionPPCallbacks>(
+      CI.getSourceManager(),
+      gSystemHeadersInMainFiles,
+      gFileInclusionTree));
+    return llvm::make_unique<closure::RelationConstructionConsumer>();
   }
 };
 
-static bool IsSystemHeaderInMainFile(llvm::sys::fs::UniqueID f) {
-  return gSystemHeadersInMainFile.find(f)
-    != gSystemHeadersInMainFile.end();
+static bool IsSystemHeaderInMainFile(closure::FileKeyType f) {
+  return gSystemHeadersInMainFiles.find(f)
+    != gSystemHeadersInMainFiles.end();
 }
 
-static size_t CountUserHeader(const std::vector<llvm::sys::fs::UniqueID> &v) {
-  size_t count = 0;
-  for (auto iter = v.begin(); iter != v.end(); ++iter) {
-    if (!IsSystemHeaderInMainFile(*iter))
-      ++count;
+static size_t CountUserHeader(const closure::FileNode &node) {
+  size_t r = 0;
+  for (size_t i = 0, count = node.getInclusionsCount(); i != count; ++i) {
+    if (!IsSystemHeaderInMainFile(node.getInclusion(i)))
+      ++r;
   }
-  return count;
+  return r;
 }
 
 static void PrintInclusionTree() {
@@ -204,16 +130,17 @@ static void PrintInclusionTree() {
       << iter->first.getFile() << " "
       << iter->second.getFileName() << "\n";
 
-    auto inclusion = iter->second.getInclusion();
-    if (CountUserHeader(inclusion) != 0)
+    if (CountUserHeader(iter->second) != 0)
       llvm::outs() << "includes:\n";
-    for (auto j = inclusion.begin(); j != inclusion.end(); ++j) {
-      if (IsSystemHeaderInMainFile(*j))
+    for (size_t j = 0, count = iter->second.getInclusionsCount();
+      j != count;
+      ++j) {
+      const closure::FileKeyType &k = iter->second.getInclusion(j);
+      if (IsSystemHeaderInMainFile(k))
         continue;
-      llvm::outs() << j->getDevice() << "-" << j->getFile();
+      llvm::outs() << k.getDevice() << "-" << k.getFile();
 
-      FileInclusionTreeType::const_iterator r
-        = gFileInclusionTree.find(*j);
+      auto r = gFileInclusionTree.find(k);
       if (r != gFileInclusionTree.end()) {
         llvm::outs() << " " << r->second.getFileName();
       }
@@ -247,7 +174,7 @@ int main(int argc, const char **argv) {
     ClangTool RelationGraphConstructionTool(op.getCompilations(),
       op.getSourcePathList());
     std::unique_ptr<FrontendActionFactory> RGFactory(
-      newFrontendActionFactory<RelationGraphConstructionAction>());
+      newFrontendActionFactory<RelationConstructionAction>());
     RelationGraphConstructionTool.run(RGFactory.get());
     PrintInclusionTree();
     return 0;
