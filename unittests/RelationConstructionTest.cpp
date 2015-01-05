@@ -49,6 +49,27 @@ TEST(RelationConstructionTest, Simple) {
     filesSet, filesMap
     );
 
+  EXPECT_TRUE(runToolOnCodeWithArgs(action,
+    simplemain_c,
+    std::vector<std::string>(),
+    "simplemain.c",
+    contents));
+}
+
+class InclusionTestAction : public ASTFrontendAction {
+public:
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(
+    CompilerInstance &CI,
+    StringRef InFile) override {
+    return llvm::make_unique<ASTConsumer>();
+  }
+};
+
+TEST(InclusionTest, Debug) {
+  InclusionTestAction *action = new InclusionTestAction;
+  FileContentMappings contents;
+  contents.push_back(std::make_pair("simpleheader.h", simpleheader_h));
+  contents.push_back(std::make_pair("simpleheader2.h", ""));
   runToolOnCodeWithArgs(action,
     simplemain_c,
     std::vector<std::string>(),
