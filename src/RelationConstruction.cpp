@@ -37,5 +37,20 @@ void InclusionPPCallbacks::InclusionDirective(
   FindOrInsert(mFiles, File);
   parentIter->second.appendInclusion(File->getUniqueID());
 }
+
+bool RelationConstructionVisitor::VisitFunctionDecl(FunctionDecl *fd) {
+  return true;
+}
+
+bool RelationConstructionConsumer::HandleTopLevelDecl(DeclGroupRef DR) {
+  for (DeclGroupRef::iterator b = DR.begin(), e = DR.end(); b != e; ++b)
+    mVisitor.TraverseDecl(*b);
+  return true;
+}
+
+void RelationConstructionConsumer::Initialize(ASTContext &Context) {
+  mVisitor.SetASTContext(&Context);
+}
+
 } // namespace closure
 } // namespace clang

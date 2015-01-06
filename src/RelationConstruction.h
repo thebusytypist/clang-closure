@@ -17,6 +17,9 @@ typedef llvm::sys::fs::UniqueID FileKeyType;
 typedef std::set<FileKeyType> FilesSetType;
 class FileNode;
 typedef std::map<FileKeyType, FileNode> FilesMapType;
+typedef std::string SymbolKeyType;
+class SymbolNode;
+typedef std::map<SymbolKeyType, SymbolNode> SymbolsMapType;
 
 class FileNode {
 public:
@@ -70,7 +73,57 @@ private:
   FilesMapType &mFiles;
 };
 
+class SymbolNode {
+public:
+  SymbolNode(const FileKeyType &file) : mFile(file) {}
+
+  size_t getDependencyCount() const {
+    return mDependencies.size();
+  }
+
+  const SymbolKeyType& getDependency(size_t index) const {
+    return mDependencies[index];
+  }
+
+  void appendDependency(const SymbolKeyType &dep) {
+    mDependencies.push_back(dep);
+  }
+
+  const FileKeyType& getDefinitionFile() const {
+    return mFile;
+  }
+
+private:
+  std::vector<SymbolKeyType> mDependencies;
+  FileKeyType mFile;
+};
+
+class RelationConstructionVisitor
+  : public RecursiveASTVisitor<RelationConstructionVisitor> {
+public:
+  RelationConstructionVisitor(SymbolsMapType &symbols) : mSymbols(symbols) {}
+
+  bool VisitFunctionDecl(FunctionDecl *fd);
+
+  void SetASTContext(ASTContext *context) {
+    mContext = context;
+  }
+
+private:
+  ASTContext *mContext;
+  SymbolsMapType &mSymbols;
+};
+
 class RelationConstructionConsumer : public ASTConsumer {
+public:
+  RelationConstructionConsumer(SymbolsMapType &symbols) : mVisitor(symbols) {}
+
+  bool HandleTopLevelDecl(DeclGroupRef DR) override;
+
+  void Initialize(ASTContext &Context) override;
+
+private:
+  RelationConstructionVisitor mVisitor;
 };
 
 } // namespace closure
