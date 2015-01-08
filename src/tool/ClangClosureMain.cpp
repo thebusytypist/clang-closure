@@ -50,6 +50,8 @@ std::string gSelectedSymbolSignature;
 closure::FilesMapType gFileInclusionTree;
 closure::FilesSetType gSystemHeadersInMainFiles;
 
+closure::SymbolsMapType gSymbols;
+
 //===----------------------------------------------------------------------===//
 // Symbols listing
 //===----------------------------------------------------------------------===//
@@ -102,7 +104,7 @@ public:
       CI.getSourceManager(),
       gSystemHeadersInMainFiles,
       gFileInclusionTree));
-    return llvm::make_unique<closure::RelationConstructionConsumer>();
+    return llvm::make_unique<closure::RelationConstructionConsumer>(gSymbols);
   }
 };
 

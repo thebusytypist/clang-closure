@@ -39,6 +39,14 @@ void InclusionPPCallbacks::InclusionDirective(
 }
 
 bool RelationConstructionVisitor::VisitFunctionDecl(FunctionDecl *fd) {
+  if (fd->hasBody()) {
+    Stmt *body = fd->getBody();
+    for (Stmt::const_child_iterator iter = body->child_begin(),
+      end = body->child_end();
+      iter != end; ++iter) {
+      llvm::outs() << iter->getStmtClassName() << "\n";
+    }
+  }
   return true;
 }
 
