@@ -11,7 +11,9 @@ class RelationConstructionTestAction : public ASTFrontendAction {
 public:
   RelationConstructionTestAction(
     closure::FilesSetType &s,
-    closure::FilesMapType &m) : mFilesSet(s), mFilesMap(m) {}
+    closure::FilesMapType &m,
+    closure::SymbolsMapType &symbols)
+      : mFilesSet(s), mFilesMap(m), mSymbols(symbols) {}
 
   std::unique_ptr<ASTConsumer> CreateASTConsumer(
     CompilerInstance &CI,
@@ -21,11 +23,12 @@ public:
       CI.getSourceManager(),
       mFilesSet,
       mFilesMap));
-    return llvm::make_unique<closure::RelationConstructionConsumer>();
+    return llvm::make_unique<closure::RelationConstructionConsumer>(mSymbols);
   }
 
   closure::FilesSetType &mFilesSet;
   closure::FilesMapType &mFilesMap;
+  closure::SymbolsMapType &mSymbols;
 };
 
 static const char *simplemain_c = R"(
@@ -40,14 +43,14 @@ static const char *simpleheader_h = R"(
 TEST(RelationConstructionTest, Simple) {
   closure::FilesSetType filesSet;
   closure::FilesMapType filesMap;
+  closure::SymbolsMapType symbols;
   
   FileContentMappings contents;
   contents.push_back(std::make_pair("simpleheader.h", simpleheader_h));
   contents.push_back(std::make_pair("simpleheader2.h", ""));
 
   RelationConstructionTestAction *action = new RelationConstructionTestAction(
-    filesSet, filesMap
-    );
+    filesSet, filesMap, symbols);
 
   EXPECT_TRUE(runToolOnCodeWithArgs(action,
     simplemain_c,
