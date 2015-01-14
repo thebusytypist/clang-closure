@@ -38,14 +38,33 @@ void InclusionPPCallbacks::InclusionDirective(
   parentIter->second.appendInclusion(File->getUniqueID());
 }
 
+class DeclRefVisitor : public RecursiveASTVisitor<DeclRefVisitor> {
+public:
+  void VisitStmt(Stmt *stmt) {
+    if (llvm::isa<DeclRefExpr>(stmt)) {
+      DeclRefExpr *drExpr = llvm::cast<DeclRefExpr>(stmt);
+      llvm::outs() << "DeclRefExpr: " << drExpr->getDecl()->getName() << "\n";
+    }
+  }
+
+  void VisitDeclRefExpr(DeclRefExpr *drExpr) {
+    llvm::outs() << "DeclRefExpr: " << drExpr->getDecl()->getName() << "\n";
+  }
+};
+
 bool RelationConstructionVisitor::VisitFunctionDecl(FunctionDecl *fd) {
   if (fd->hasBody()) {
     Stmt *body = fd->getBody();
-    for (Stmt::const_child_iterator iter = body->child_begin(),
+    DeclRefVisitor declRefVisitor;
+    // declRefVisitor.TraverseStmt(body);
+#if 1
+    for (Stmt::child_iterator iter = body->child_begin(),
       end = body->child_end();
       iter != end; ++iter) {
       llvm::outs() << iter->getStmtClassName() << "\n";
+      declRefVisitor.VisitStmt(*iter);
     }
+#endif
   }
   return true;
 }
