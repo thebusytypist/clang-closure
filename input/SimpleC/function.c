@@ -1,5 +1,9 @@
 #include "function.h"
 
+static int getValue() {
+    return 1;
+}
+
 int function(int x) {
-    return x + 1;
+    return x + getValue();
 }
