@@ -1,4 +1,7 @@
 #include "RelationConstruction.h"
+#include "clang/ASTMatchers/ASTMatchers.h"
+
+using namespace clang::ast_matchers;
 
 namespace clang {
 namespace closure {
@@ -38,31 +41,31 @@ void InclusionPPCallbacks::InclusionDirective(
   parentIter->second.appendInclusion(File->getUniqueID());
 }
 
-class DeclRefVisitor : public RecursiveASTVisitor<DeclRefVisitor> {
-public:
-  void VisitStmt(Stmt *stmt) {
-    if (llvm::isa<DeclRefExpr>(stmt)) {
-      DeclRefExpr *drExpr = llvm::cast<DeclRefExpr>(stmt);
+class DeclRefExprHandler : public MatchFinder::MatchCallback {
+  virtual void run(const MatchFinder::MatchResult &Result) {
+    if (const DeclRefExpr *drExpr
+      = Result.Nodes.getNodeAs<DeclRefExpr>("declRefExpr")) {
       llvm::outs() << "DeclRefExpr: " << drExpr->getDecl()->getName() << "\n";
     }
   }
-
-  void VisitDeclRefExpr(DeclRefExpr *drExpr) {
-    llvm::outs() << "DeclRefExpr: " << drExpr->getDecl()->getName() << "\n";
-  }
 };
+
+static DeclRefExprHandler gDeclRefExprHandler;
+
+RelationConstructionVisitor::RelationConstructionVisitor(
+  SymbolsMapType &symbols) : mSymbols(symbols) {
+  Matcher.addMatcher(declRefExpr().bind("declRefExpr"), &gDeclRefExprHandler);
+}
 
 bool RelationConstructionVisitor::VisitFunctionDecl(FunctionDecl *fd) {
   if (fd->hasBody()) {
     Stmt *body = fd->getBody();
-    DeclRefVisitor declRefVisitor;
-    // declRefVisitor.TraverseStmt(body);
-#if 1
+    Matcher.matchAST(*mContext);
+#if 0
     for (Stmt::child_iterator iter = body->child_begin(),
       end = body->child_end();
       iter != end; ++iter) {
       llvm::outs() << iter->getStmtClassName() << "\n";
-      declRefVisitor.VisitStmt(*iter);
     }
 #endif
   }

@@ -3,6 +3,7 @@
 
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Lex/Preprocessor.h"
 #include "llvm/Support/FileSystem.h"
 #include <map>
@@ -101,7 +102,7 @@ private:
 class RelationConstructionVisitor
   : public RecursiveASTVisitor<RelationConstructionVisitor> {
 public:
-  RelationConstructionVisitor(SymbolsMapType &symbols) : mSymbols(symbols) {}
+  RelationConstructionVisitor(SymbolsMapType &symbols);
 
   bool VisitFunctionDecl(FunctionDecl *fd);
 
@@ -112,6 +113,7 @@ public:
 private:
   ASTContext *mContext;
   SymbolsMapType &mSymbols;
+  ast_matchers::MatchFinder Matcher;
 };
 
 class RelationConstructionConsumer : public ASTConsumer {
