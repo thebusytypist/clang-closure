@@ -45,8 +45,20 @@ class DeclRefExprHandler : public MatchFinder::MatchCallback {
   virtual void run(const MatchFinder::MatchResult &Result) {
     if (const DeclRefExpr *drExpr
       = Result.Nodes.getNodeAs<DeclRefExpr>("declRefExpr")) {
-      llvm::outs() << "DeclRefExpr: " << drExpr->getDecl()->getName() << "\n";
+      const FunctionDecl *fd
+        = Result.Nodes.getNodeAs<FunctionDecl>("functionDecl");
+      if (fd == mFunctionDecl)
+        llvm::outs() << "DeclRefExpr: " << drExpr->getDecl()->getName()
+          << " in " << fd->getName() << "\n";
     }
+  }
+
+private:
+  const FunctionDecl *mFunctionDecl;
+
+public:
+  void setCurrentFunctionDecl(const FunctionDecl *fd) {
+    mFunctionDecl = fd;
   }
 };
 
@@ -54,20 +66,20 @@ static DeclRefExprHandler gDeclRefExprHandler;
 
 RelationConstructionVisitor::RelationConstructionVisitor(
   SymbolsMapType &symbols) : mSymbols(symbols) {
-  Matcher.addMatcher(declRefExpr().bind("declRefExpr"), &gDeclRefExprHandler);
+  Matcher.addMatcher(
+    functionDecl(
+      forEachDescendant(
+        declRefExpr().bind("declRefExpr"))).bind("functionDecl"),
+    &gDeclRefExprHandler);
 }
 
 bool RelationConstructionVisitor::VisitFunctionDecl(FunctionDecl *fd) {
   if (fd->hasBody()) {
     Stmt *body = fd->getBody();
+    llvm::outs() << "Function: " << fd->getName() << "\n";
+    gDeclRefExprHandler.setCurrentFunctionDecl(fd);
     Matcher.matchAST(*mContext);
-#if 0
-    for (Stmt::child_iterator iter = body->child_begin(),
-      end = body->child_end();
-      iter != end; ++iter) {
-      llvm::outs() << iter->getStmtClassName() << "\n";
-    }
-#endif
+    llvm::outs() << "Function END.\n";
   }
   return true;
 }

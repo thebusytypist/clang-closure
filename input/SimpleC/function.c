@@ -1,7 +1,8 @@
 #include "function.h"
 
 static int getValue() {
-    return 1;
+    int r = 1;
+    return r;
 }
 
 int function(int x) {
