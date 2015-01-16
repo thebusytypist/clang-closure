@@ -1,6 +1,6 @@
 #include "function.h"
 
-static int getValue() {
+int getValue() {
     int r = 1;
     return r;
 }

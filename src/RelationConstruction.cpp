@@ -47,9 +47,16 @@ class DeclRefExprHandler : public MatchFinder::MatchCallback {
       = Result.Nodes.getNodeAs<DeclRefExpr>("declRefExpr")) {
       const FunctionDecl *fd
         = Result.Nodes.getNodeAs<FunctionDecl>("functionDecl");
-      if (fd == mFunctionDecl)
-        llvm::outs() << "DeclRefExpr: " << drExpr->getDecl()->getName()
-          << " in " << fd->getName() << "\n";
+      if (fd == mFunctionDecl) {
+        const NamedDecl *foundDecl = drExpr->getFoundDecl();
+        SourceLocation location = foundDecl->getLocation();
+        if (!Result.Context->getSourceManager().isInMainFile(location)) {
+          llvm::outs() << "DeclRefExpr: " << drExpr->getDecl()->getName()
+            << " in " << fd->getName() << "\n";
+          location.print(llvm::outs(), Result.Context->getSourceManager());
+          llvm::outs() << "\n";
+        }
+      }
     }
   }
 
@@ -74,7 +81,8 @@ RelationConstructionVisitor::RelationConstructionVisitor(
 }
 
 bool RelationConstructionVisitor::VisitFunctionDecl(FunctionDecl *fd) {
-  if (fd->hasBody()) {
+  if (mContext->getSourceManager().isInMainFile(fd->getLocation())
+    && fd->hasBody()) {
     Stmt *body = fd->getBody();
     llvm::outs() << "Function: " << fd->getName() << "\n";
     gDeclRefExprHandler.setCurrentFunctionDecl(fd);
